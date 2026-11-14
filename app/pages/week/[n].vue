@@ -66,7 +66,7 @@ useHead(() => ({
 <template>
   <div :style="{ '--level': level.color }">
     <header class="bg-(--level) px-4 pt-4 pb-8 sm:px-7 sm:pb-12">
-      <div class="flex items-start justify-between gap-4">
+      <div class="relative z-10 flex items-start justify-between gap-4">
         <NuxtLink :to="`/?w=${n}`" class="btn btn-ink">← The road</NuxtLink>
         <div v-if="hasTracks" class="label text-right leading-tight" role="group" aria-label="Track">
           <span class="opacity-60">Track</span><br />
@@ -84,7 +84,7 @@ useHead(() => ({
       </div>
 
       <div class="mt-8 grid items-end gap-x-8 gap-y-2 md:grid-cols-[auto_1fr]">
-        <p class="display text-[clamp(8rem,30vw,26rem)] leading-[0.78]" aria-hidden="true">{{ pad(n) }}</p>
+        <p class="display pointer-events-none text-[clamp(8rem,30vw,26rem)] leading-[0.78] select-none" aria-hidden="true">{{ pad(n) }}</p>
         <div class="pb-2">
           <p class="label">{{ level.name }} — Week {{ pad(n) }} of 30<template v-if="meta.project"> — Milestone</template></p>
           <h1 class="display mt-3 text-[clamp(2.6rem,7vw,7rem)]">{{ meta.title }}</h1>
