@@ -88,6 +88,10 @@ html.lenis body {
   translate: -3px -3px;
   box-shadow: 3px 3px 0 currentColor;
 }
+.btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
 .btn:active {
   translate: 0 0;
   box-shadow: none;

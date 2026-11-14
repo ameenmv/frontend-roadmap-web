@@ -73,7 +73,7 @@ useHead(() => ({
           <button
             v-for="t in (['react', 'vue'] as const)"
             :key="t"
-            class="label ml-2 first-of-type:ml-0"
+            class="label ml-2 py-2 first-of-type:ml-0"
             :class="track === t ? 'underline decoration-2 underline-offset-4' : 'opacity-55 hover:opacity-100'"
             :aria-pressed="track === t"
             @click="setTrack(t)"

@@ -8,6 +8,7 @@ import { T_END, T_START, createRoad, stationT, type Road } from '~/three/road'
 
 const { done, track, load, toggle, setTrack } = useJourney()
 const route = useRoute()
+const nuxtApp = useNuxtApp()
 
 const root = ref<HTMLElement>()
 const canvas = ref<HTMLCanvasElement>()
@@ -72,6 +73,7 @@ onMounted(async () => {
   mode.value = '3d'
   await nextTick()
   gsap.registerPlugin(ScrollTrigger, SplitText)
+  ScrollTrigger.config({ ignoreMobileResize: true })
 
   const nav = navigator as Navigator & { deviceMemory?: number }
   const low = window.innerWidth < 768 || (nav.deviceMemory ?? 8) <= 4 || (navigator.hardwareConcurrency ?? 8) <= 4
@@ -114,15 +116,22 @@ onMounted(async () => {
         started.value = p > 0.022
         ended.value = p > 0.978
         // The title lifts away like a billboard you drive under.
-        gsap.set(hero.value!, { autoAlpha: 1 - gsap.utils.clamp(0, 1, (p - 0.006) / 0.02), yPercent: -p * 1400 })
+        gsap.set(hero.value!, { autoAlpha: 1 - gsap.utils.clamp(0, 1, (p - 0.006) / 0.02), yPercent: -Math.max(0, p - 0.006) * 1400 })
       },
     })
   }, root.value)
 
   if (resume) {
-    // Wait for layout to settle so the scroll position maps to the right week.
-    ScrollTrigger.refresh()
-    requestAnimationFrame(() => lenis?.scrollTo(weekY(back), { immediate: true, force: true }))
+    // Nuxt scrolls to the top once the page transition ends, so land on the week
+    // now, again right after that, and once more as a safety net.
+    const land = () => {
+      ScrollTrigger.refresh()
+      lenis?.resize()
+      lenis?.scrollTo(weekY(back), { immediate: true, force: true })
+    }
+    requestAnimationFrame(land)
+    nuxtApp.hooks.hookOnce('page:transition:finish', () => requestAnimationFrame(land))
+    setTimeout(land, 900)
   }
 
   window.addEventListener('keydown', onKey)
@@ -158,7 +167,7 @@ onUnmounted(() => {
             <button
               v-for="t in (['react', 'vue'] as const)"
               :key="t"
-              class="label ml-2 first-of-type:ml-0"
+              class="label ml-2 py-2 first-of-type:ml-0"
               :class="track === t ? 'underline decoration-2 underline-offset-4' : 'opacity-55 hover:opacity-100'"
               :aria-pressed="track === t"
               @click="setTrack(t)"
@@ -193,9 +202,13 @@ onUnmounted(() => {
         :class="started && !ended ? 'translate-y-0' : 'pointer-events-none translate-y-[130%]'"
         aria-live="polite"
       >
-        <p class="label flex items-center justify-between gap-3 overflow-hidden">
+        <p class="label flex items-center justify-between gap-3 overflow-hidden max-md:overflow-visible">
           <span class="swap inline-block">Week {{ pad(week.n) }} <span class="opacity-50">/ 30</span></span>
-          <span class="swap inline-block" :style="{ color: level.color }">{{ week.project ? 'Milestone' : level.name }}</span>
+          <span class="swap inline-block max-md:hidden" :style="{ color: level.color }">{{ week.project ? 'Milestone' : level.name }}</span>
+          <span class="flex gap-2 md:hidden">
+            <button class="btn !px-3.5 !py-2" aria-label="Previous week" :disabled="index === 0" @click="scrollToWeek(index - 1)">←</button>
+            <button class="btn !px-3.5 !py-2" aria-label="Next week" :disabled="index === WEEKS.length - 1" @click="scrollToWeek(index + 1)">→</button>
+          </span>
         </p>
         <h2 class="display mt-3 overflow-hidden text-[clamp(2.2rem,4.2vw,3.4rem)]"><span class="swap inline-block">{{ week.title }}</span></h2>
         <p class="swap mt-3 font-serif text-xl leading-snug italic opacity-85">You ship: {{ week.ship.charAt(0).toLowerCase() + week.ship.slice(1) }}.</p>

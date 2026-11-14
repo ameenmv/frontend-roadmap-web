@@ -24,6 +24,8 @@ const PAPER = '#efe9dd'
 const UP = new THREE.Vector3(0, 1, 0)
 /** How far before a station the camera rests, so its sign is in view. */
 const VIEW_BACK = 0.017
+/** Portrait screens are narrow: stand further back so roadside signs fit. */
+const VIEW_BACK_NARROW = 0.034
 
 /** Roadside words, per level: the things you learn there. */
 const WORDS: string[][] = [
@@ -256,30 +258,28 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
       const dir = s.project ? (i % 2 ? 1 : -1) : i % 2 === 0 ? -1 : 1
       const big = !!s.project
       const m = text(String(s.n).padStart(2, '0'), big ? 15 : 8.5, big ? 4 : 2.4, big ? paper : ink, big ? ink : paper)
-      m.position.copy(at).addScaledVector(side, dir * (big ? 31 : 22)).addScaledVector(tan, big ? 24 : 19)
+      m.position.copy(at).addScaledVector(side, dir * (big ? 34 : 25)).addScaledVector(tan, big ? 26 : 21)
       m.lookAt(m.position.clone().sub(tan))
       m.rotateY(-dir * 0.42)
       scene.add(m)
     })
 
-    const per = high ? 2 : 1
+    // One word per gap, painted flat on the shoulder like road markings, so it
+    // never stands in front of a sign or a giant number.
     for (let i = 0; i < count - 1; i++) {
       const level = i < 8 ? 0 : i < 18 ? 1 : i < 24 ? 2 : 3
       const words = WORDS[level]!
-      for (let k = 0; k < per; k++) {
-        const t = stationT(i, count) + (0.42 + k * 0.22) * ((T_END - T_START) / (count - 1))
-        const at = curve.getPointAt(t)
-        const tan = curve.getTangentAt(t)
-        // keep clear of the next station's giant number
-        const dir = (i + 1) % 2 === 0 ? 1 : -1
-        const far = 13 + ((i * 7 + k * 13) % 15)
-        const lightFace = (i + k) % 3 === 0
-        const m = text(words[(i * 3 + k) % words.length]!, 1.7 + ((i * 5 + k) % 3) * 0.8, 0.8, lightFace ? paper : ink, lightFace ? ink : paper)
-        m.position.copy(at).addScaledVector(sideAt(t), dir * far)
-        m.lookAt(m.position.clone().sub(tan))
-        m.rotateY(-dir * (0.25 + ((i + k) % 5) * 0.12))
-        scene.add(m)
-      }
+      const t = stationT(i, count) + 0.5 * ((T_END - T_START) / (count - 1))
+      const at = curve.getPointAt(t)
+      const tan = curve.getTangentAt(t)
+      const dir = i % 2 === 0 ? -1 : 1
+      const m = text(words[(i * 3) % words.length]!, 1.7, 0.05, paper, paper)
+      const half = m.geometry.boundingBox!.max.x - m.geometry.boundingBox!.min.x
+      m.position.copy(at).addScaledVector(sideAt(t), dir * (ROAD_W + 1.3 + half / 2))
+      m.position.y = 0.04
+      m.lookAt(m.position.clone().sub(tan))
+      m.rotateX(-Math.PI / 2)
+      scene.add(m)
     }
   }
 
@@ -302,6 +302,7 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
   const clock = new THREE.Clock()
   let raf = 0
   let running = true
+  let viewBack = VIEW_BACK
 
   const onPointer = (e: PointerEvent) => pointer.set((e.clientX / window.innerWidth) * 2 - 1, (e.clientY / window.innerHeight) * 2 - 1)
   window.addEventListener('pointermove', onPointer, { passive: true })
@@ -312,6 +313,7 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
     renderer.setSize(w, h, false)
     camera.aspect = w / h
     camera.fov = w / h < 0.8 ? 78 : 58
+    viewBack = w / h < 0.8 ? VIEW_BACK_NARROW : VIEW_BACK
     camera.updateProjectionMatrix()
   }
   resize()
@@ -325,7 +327,7 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
     current += (target - current) * (1 - Math.exp(-dt * 6))
     pointerSmooth.lerp(pointer, 1 - Math.exp(-dt * 4))
 
-    const t = THREE.MathUtils.clamp(current - VIEW_BACK, 0, 0.985)
+    const t = THREE.MathUtils.clamp(current - viewBack, 0, 0.985)
     curve.getPointAt(t, camPos)
     curve.getPointAt(Math.min(t + 0.014, 1), look)
     const tan = curve.getTangentAt(t)
