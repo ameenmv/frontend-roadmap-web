@@ -1,44 +1,38 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Syne", system-ui, sans-serif;
-  --font-sans: "Manrope", system-ui, sans-serif;
+  --font-display: "Anton", "Archivo", system-ui, sans-serif;
+  --font-sans: "Archivo", system-ui, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --color-void: #05060a;
-  --color-ink: #e8ecf4;
-  --color-mute: #8a93a6;
-  --color-beginner: #ff6a2b;
-  --color-intermediate: #f2b01e;
-  --color-advanced: #22c3f5;
-  --color-final: #9d6bff;
+  --color-ink: #141312;
+  --color-paper: #efe9dd;
+  --color-beginner: #ff5a1f;
+  --color-intermediate: #ffc21a;
+  --color-advanced: #3d8bff;
+  --color-final: #9a6bff;
 }
 
 :root {
   --level: var(--color-beginner);
-  color-scheme: dark;
 }
 
 html {
-  background: var(--color-void);
+  background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-body {
-  overscroll-behavior: none;
-}
-
 :focus-visible {
-  outline: 2px solid var(--level);
+  outline: 3px solid var(--color-ink);
   outline-offset: 3px;
-  border-radius: 4px;
 }
 
 ::selection {
-  background: var(--level);
-  color: #05060a;
+  background: var(--color-ink);
+  color: var(--color-paper);
 }
 
 /* Lenis */
@@ -50,17 +44,212 @@ html.lenis body {
   scroll-behavior: auto !important;
 }
 
-.hud-glass {
-  background: color-mix(in oklab, var(--color-void) 62%, transparent);
-  backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid color-mix(in oklab, var(--level) 28%, transparent);
+/* Printed-poster grain over everything */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.2;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-.level-text {
-  color: var(--level);
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
-.scanline {
-  background-image: linear-gradient(to bottom, transparent 50%, rgb(255 255 255 / 0.012) 50%);
-  background-size: 100% 4px;
+.display {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  line-height: 0.88;
+  letter-spacing: -0.005em;
+}
+
+/* Hard-edged buttons: no pills, no glass */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.8em 1.15em;
+  border: 2px solid currentColor;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: translate 0.15s, box-shadow 0.15s, background-color 0.15s, color 0.15s;
+}
+.btn:hover {
+  translate: -3px -3px;
+  box-shadow: 3px 3px 0 currentColor;
+}
+.btn:active {
+  translate: 0 0;
+  box-shadow: none;
+}
+.btn-solid {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  border-color: var(--color-paper);
+}
+.btn-ink {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-color: var(--color-ink);
+}
+.btn-ink:hover {
+  box-shadow: 3px 3px 0 var(--level);
+}
+
+/* Page transition: a flat colour wipe */
+.wipe-enter-active,
+.wipe-leave-active {
+  transition: clip-path 0.55s cubic-bezier(0.7, 0, 0.2, 1);
+}
+.wipe-enter-from {
+  clip-path: inset(100% 0 0 0);
+}
+.wipe-enter-to,
+.wipe-leave-from {
+  clip-path: inset(0 0 0 0);
+}
+.wipe-leave-to {
+  clip-path: inset(0 0 100% 0);
+}
+
+/* Week content */
+.prose {
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+.prose > * + * {
+  margin-block-start: 1.1em;
+}
+.prose h4 {
+  font-family: var(--font-display);
+  font-size: clamp(1.9rem, 4vw, 2.8rem);
+  line-height: 0.95;
+  text-transform: uppercase;
+  margin-block-start: 1.6em;
+}
+.prose :is(ul, ol) {
+  padding-inline-start: 1.3em;
+}
+.prose ul {
+  list-style: square;
+}
+.prose ol {
+  list-style: decimal-leading-zero;
+}
+.prose li + li {
+  margin-block-start: 0.4em;
+}
+.prose li::marker {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+}
+.prose a,
+.field a {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--level);
+}
+.prose a:hover,
+.field a:hover {
+  background: var(--level);
+}
+.prose code,
+.field code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 0.1em 0.35em;
+  background: color-mix(in oklab, var(--color-ink) 9%, transparent);
+}
+.prose pre {
+  padding: 1em 1.2em;
+  overflow-x: auto;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 0.85rem;
+}
+.prose pre code {
+  padding: 0;
+  background: none;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+.prose :is(th, td) {
+  padding: 0.7em 0.8em;
+  border-block-end: 1px solid color-mix(in oklab, var(--color-ink) 25%, transparent);
+  text-align: start;
+  vertical-align: top;
+}
+.prose th {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-block-end: 2px solid var(--color-ink);
+}
+.prose summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.prose details > * + * {
+  margin-block-start: 0.8em;
+}
+
+.callout {
+  position: relative;
+  padding: 2.4em 1.2em 1.1em;
+  border: 2px solid var(--color-ink);
+}
+.callout > * + * {
+  margin-block-start: 0.7em;
+}
+.callout::before {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  padding: 0.35em 0.8em;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  content: "NOTE";
+}
+.callout-tip {
+  background: color-mix(in oklab, var(--level) 22%, transparent);
+}
+.callout-tip::before {
+  content: "BONUS";
+}
+.callout-warning::before {
+  content: "PITFALLS";
+}
+.callout-note::before {
+  content: "MENTOR";
+}
+.callout-important {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+.callout-important::before {
+  background: var(--level);
+  color: var(--color-ink);
+  content: "IMPORTANT";
+}
+.callout-caution::before {
+  content: "THE TEST";
 }

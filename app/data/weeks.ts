@@ -19,10 +19,10 @@ export interface Week {
 }
 
 export const LEVELS: Record<LevelId, Level> = {
-  beginner: { id: 'beginner', name: 'Level 1 · Beginner', range: 'Weeks 0-8', color: '#ff6a2b' },
-  intermediate: { id: 'intermediate', name: 'Level 2 · Intermediate', range: 'Weeks 9-18', color: '#f2b01e' },
-  advanced: { id: 'advanced', name: 'Level 3 · Advanced', range: 'Weeks 19-24', color: '#22c3f5' },
-  final: { id: 'final', name: 'Level 3 · Final stretch', range: 'Weeks 25-30', color: '#9d6bff' },
+  beginner: { id: 'beginner', name: 'Level 1 · Beginner', range: 'Weeks 0-8', color: '#ff5a1f' },
+  intermediate: { id: 'intermediate', name: 'Level 2 · Intermediate', range: 'Weeks 9-18', color: '#ffc21a' },
+  advanced: { id: 'advanced', name: 'Level 3 · React or Vue', range: 'Weeks 19-24', color: '#3d8bff' },
+  final: { id: 'final', name: 'Level 3 · Final stretch', range: 'Weeks 25-30', color: '#9a6bff' },
 }
 
 export const WEEKS: Week[] = [

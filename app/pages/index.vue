@@ -3,17 +3,17 @@ import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { SplitText } from 'gsap/SplitText'
 import Lenis from 'lenis'
-import { LEVELS, WEEKS, resolveWeek, weekHref } from '~/data/weeks'
+import { LEVELS, WEEKS, resolveWeek } from '~/data/weeks'
 import { T_END, T_START, createRoad, stationT, type Road } from '~/three/road'
 
 const { done, track, load, toggle, setTrack } = useJourney()
+const route = useRoute()
 
 const root = ref<HTMLElement>()
 const canvas = ref<HTMLCanvasElement>()
 const scroller = ref<HTMLElement>()
 const hero = ref<HTMLElement>()
 const card = ref<HTMLElement>()
-const finale = ref<HTMLElement>()
 
 const mode = ref<'loading' | '3d' | 'flat'>('loading')
 const index = ref(0)
@@ -25,26 +25,26 @@ const week = computed(() => weeks.value[index.value]!)
 const level = computed(() => LEVELS[week.value.level])
 const percent = computed(() => Math.round((done.value.length / WEEKS.length) * 100))
 const isDone = (n: number) => done.value.includes(n)
+const pad = (n: number) => String(n).padStart(2, '0')
 
 let road: Road | undefined
 let lenis: Lenis | undefined
 let ctx: gsap.Context | undefined
 let tick: ((time: number) => void) | undefined
 
-const scrollToWeek = (i: number) => {
-  const el = scroller.value
-  if (!el) return
-  const max = el.offsetHeight - window.innerHeight
-  const y = el.offsetTop + stationT(clampIdx(i), WEEKS.length) * max
-  if (lenis) lenis.scrollTo(y, { duration: 1.4 })
-  else window.scrollTo({ top: y, behavior: 'smooth' })
-}
 const clampIdx = (i: number) => Math.max(0, Math.min(WEEKS.length - 1, i))
+const weekY = (i: number) => {
+  const el = scroller.value!
+  return el.offsetTop + stationT(clampIdx(i), WEEKS.length) * (el.offsetHeight - window.innerHeight)
+}
+const scrollToWeek = (i: number) => {
+  if (!scroller.value) return
+  if (lenis) lenis.scrollTo(weekY(i), { duration: 1.4 })
+  else window.scrollTo({ top: weekY(i), behavior: 'smooth' })
+}
 
 const onKey = (e: KeyboardEvent) => {
   if (mode.value !== '3d' || e.metaKey || e.ctrlKey || e.altKey) return
-  const tag = (e.target as HTMLElement)?.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
     e.preventDefault()
     scrollToWeek(started.value ? index.value + 1 : 0)
@@ -65,14 +65,12 @@ const webglOk = () => {
 
 onMounted(async () => {
   load()
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (reduced || !webglOk()) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !webglOk()) {
     mode.value = 'flat'
     return
   }
   mode.value = '3d'
   await nextTick()
-
   gsap.registerPlugin(ScrollTrigger, SplitText)
 
   const nav = navigator as Navigator & { deviceMemory?: number }
@@ -80,10 +78,7 @@ onMounted(async () => {
 
   road = createRoad(
     canvas.value!,
-    WEEKS.map((w) => {
-      const r = resolveWeek(w, track.value)
-      return { n: w.n, color: LEVELS[w.level].color, label: r.short, project: w.project }
-    }),
+    weeks.value.map((w) => ({ n: w.n, color: LEVELS[w.level].color, levelName: LEVELS[w.level].name, label: w.short, project: w.project })),
     { quality: low ? 'low' : 'high' },
   )
 
@@ -93,15 +88,20 @@ onMounted(async () => {
   gsap.ticker.add(tick)
   gsap.ticker.lagSmoothing(0)
 
-  ctx = gsap.context(() => {
-    const split = SplitText.create('.hero-title', { type: 'chars', mask: 'chars' })
-    gsap
-      .timeline({ defaults: { ease: 'power4.out' } })
-      .from(split.chars, { yPercent: 115, duration: 1.1, stagger: 0.028 }, 0.25)
-      .from('.hero-fade', { autoAlpha: 0, y: 18, duration: 0.9, stagger: 0.12 }, 0.7)
-      .from('.hud-in', { autoAlpha: 0, duration: 1 }, 1)
+  // Coming back from a week page: land on that week.
+  const back = Number(route.query.w)
+  const resume = Number.isInteger(back) && back >= 0 && back < WEEKS.length
+  if (resume) road.snap(stationT(back, WEEKS.length))
 
-    gsap.to('.scroll-cue', { y: 10, repeat: -1, yoyo: true, duration: 0.9, ease: 'sine.inOut' })
+  ctx = gsap.context(() => {
+    if (!resume) {
+      const split = SplitText.create('.hero-title', { type: 'chars', mask: 'chars' })
+      gsap
+        .timeline({ defaults: { ease: 'power4.out' } })
+        .from(split.chars, { yPercent: 110, duration: 1, stagger: 0.035 }, 0.2)
+        .from('.hero-fade', { autoAlpha: 0, y: 16, duration: 0.8, stagger: 0.1 }, 0.75)
+    }
+    gsap.to('.scroll-cue', { y: 8, repeat: -1, yoyo: true, duration: 0.8, ease: 'sine.inOut' })
 
     ScrollTrigger.create({
       trigger: scroller.value,
@@ -110,23 +110,29 @@ onMounted(async () => {
       onUpdate(self) {
         const p = self.progress
         road?.setProgress(p)
-        const i = Math.round(((p - T_START) / (T_END - T_START)) * (WEEKS.length - 1))
-        index.value = clampIdx(i)
+        index.value = clampIdx(Math.round(((p - T_START) / (T_END - T_START)) * (WEEKS.length - 1)))
         started.value = p > 0.022
         ended.value = p > 0.978
-        gsap.set(hero.value!, { autoAlpha: 1 - gsap.utils.clamp(0, 1, p / 0.03), scale: 1 + p * 6, yPercent: -p * 400 })
+        // The title lifts away like a billboard you drive under.
+        gsap.set(hero.value!, { autoAlpha: 1 - gsap.utils.clamp(0, 1, (p - 0.006) / 0.02), yPercent: -p * 1400 })
       },
     })
   }, root.value)
 
+  if (resume) {
+    // Wait for layout to settle so the scroll position maps to the right week.
+    ScrollTrigger.refresh()
+    requestAnimationFrame(() => lenis?.scrollTo(weekY(back), { immediate: true, force: true }))
+  }
+
   window.addEventListener('keydown', onKey)
 })
 
-// Swap the card content with a short stagger each time the nearest week changes.
-watch([index, track], () => {
+watch(index, () => {
   if (!card.value || mode.value !== '3d') return
-  gsap.fromTo(card.value.querySelectorAll('.swap'), { y: 14, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.45, stagger: 0.05, ease: 'power3.out', overwrite: true })
+  gsap.fromTo(card.value.querySelectorAll('.swap'), { yPercent: 60, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.4, stagger: 0.045, ease: 'power3.out', overwrite: true })
 })
+watch(track, () => road?.setLabels(weeks.value.map((w) => w.short)))
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
@@ -139,155 +145,115 @@ onUnmounted(() => {
 
 <template>
   <div ref="root" :style="{ '--level': level.color }">
-    <!-- ================= 3D journey ================= -->
+    <!-- ================= the road ================= -->
     <template v-if="mode !== 'flat'">
-      <canvas ref="canvas" class="fixed inset-0 h-dvh w-full" aria-hidden="true" />
-      <div class="scanline pointer-events-none fixed inset-0" aria-hidden="true" />
+      <canvas ref="canvas" class="fixed inset-0 h-dvh w-full bg-beginner" aria-hidden="true" />
 
-      <!-- top bar -->
-      <header class="hud-in fixed inset-x-0 top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <a href="#top" class="font-mono text-xs tracking-[0.2em] uppercase" @click.prevent="scrollToWeek(0)">
-          <span class="level-text">CIS</span> · Frontend <span class="hidden sm:inline">Roadmap</span> 26/27
-        </a>
+      <header class="fixed inset-x-0 top-0 z-30 flex items-start justify-between gap-4 px-4 py-4 sm:px-7">
+        <a href="/" class="label leading-tight" @click.prevent="scrollToWeek(0)">CIS Team<br />Frontend Roadmap<br />2026—27</a>
 
-        <p class="hud-glass level-text hidden rounded-full px-4 py-1.5 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition-colors md:block">
-          {{ level.name }} · {{ level.range }}
-        </p>
-
-        <div class="flex items-center gap-2">
-          <div class="hud-glass flex rounded-full p-0.5 font-mono text-[0.7rem] uppercase" role="group" aria-label="Level 3 track">
+        <div class="flex items-start gap-5">
+          <div class="label text-right leading-tight" role="group" aria-label="Level 3 track">
+            <span class="opacity-60">Track</span><br />
             <button
               v-for="t in (['react', 'vue'] as const)"
               :key="t"
-              class="rounded-full px-3 py-1 transition-colors"
-              :class="track === t ? 'bg-(--level) text-void' : 'text-mute hover:text-ink'"
+              class="label ml-2 first-of-type:ml-0"
+              :class="track === t ? 'underline decoration-2 underline-offset-4' : 'opacity-55 hover:opacity-100'"
               :aria-pressed="track === t"
               @click="setTrack(t)"
             >
               {{ t }}
             </button>
           </div>
-          <p class="hud-glass rounded-full px-3 py-1.5 font-mono text-[0.7rem]" :title="`${done.length} of ${WEEKS.length} weeks done`">
-            <span class="level-text">{{ percent }}%</span>
+          <p class="label text-right leading-tight" :title="`${done.length} of ${WEEKS.length} weeks done`">
+            <span class="opacity-60">Done</span><br />{{ pad(done.length) }}/{{ WEEKS.length }} · {{ percent }}%
           </p>
         </div>
       </header>
 
       <!-- hero -->
-      <section id="top" ref="hero" class="pointer-events-none fixed inset-0 z-20 grid place-items-center px-6 text-center">
-        <div>
-          <p class="hero-fade font-mono text-xs tracking-[0.35em] text-mute uppercase">CIS Team · 2026—2027</p>
-          <h1 class="hero-title font-display mt-4 text-[clamp(3rem,11vw,10rem)] leading-[0.9] font-extrabold tracking-tight">
-            Frontend<br /><span class="level-text">Roadmap</span>
-          </h1>
-          <p class="hero-fade mx-auto mt-6 max-w-md text-base text-mute sm:text-lg">
-            31 weeks. From your first <code class="font-mono text-ink">&lt;div&gt;</code> to a live app.
+      <section ref="hero" class="pointer-events-none fixed inset-0 z-20 flex flex-col px-4 pt-24 sm:px-7 sm:pt-[4.6rem]">
+        <div class="flex flex-wrap items-end justify-between gap-4 sm:pl-[22vw]">
+          <p class="hero-fade font-serif text-[clamp(1.4rem,2.9vw,2.6rem)] leading-[1.05] italic">
+            A 31-week road trip, from your<br />first &lt;div&gt; to a live app.
           </p>
-          <p class="hero-fade scroll-cue mt-10 font-mono text-xs tracking-[0.3em] uppercase">Scroll to start ↓</p>
+          <p class="hero-fade scroll-cue label">Scroll to drive ↓</p>
         </div>
+        <h1 class="hero-title display mt-5 text-[clamp(4.5rem,21.5vw,24rem)]">Frontend<br />Roadmap</h1>
       </section>
 
       <!-- week card -->
       <aside
         ref="card"
-        class="hud-glass fixed inset-x-3 bottom-3 z-30 rounded-2xl p-4 transition-[opacity,translate] duration-500 sm:inset-x-auto sm:bottom-6 sm:left-6 sm:w-[26rem] sm:p-5"
-        :class="started && !ended ? 'opacity-100' : 'pointer-events-none translate-y-4 opacity-0'"
+        class="fixed inset-x-0 bottom-0 z-30 bg-ink p-5 text-paper transition-[translate] duration-500 ease-out sm:inset-x-auto sm:bottom-7 sm:left-7 sm:w-[27rem] sm:p-6"
+        :class="started && !ended ? 'translate-y-0' : 'pointer-events-none translate-y-[130%]'"
         aria-live="polite"
       >
-        <p class="swap level-text font-mono text-[0.7rem] tracking-[0.2em] uppercase">
-          Week {{ String(week.n).padStart(2, '0') }} <span class="text-mute">/ 30</span>
-          <span v-if="week.project" class="ml-2 rounded bg-(--level) px-1.5 py-0.5 text-void">Milestone</span>
+        <p class="label flex items-center justify-between gap-3 overflow-hidden">
+          <span class="swap inline-block">Week {{ pad(week.n) }} <span class="opacity-50">/ 30</span></span>
+          <span class="swap inline-block" :style="{ color: level.color }">{{ week.project ? 'Milestone' : level.name }}</span>
         </p>
-        <h2 class="swap font-display mt-1.5 text-2xl leading-tight font-extrabold sm:text-[1.7rem]">{{ week.title }}</h2>
-        <p class="swap mt-2 text-sm text-mute"><span class="text-ink">You ship:</span> {{ week.ship }}</p>
-        <div class="swap mt-4 flex flex-wrap items-center gap-2">
-          <a
-            :href="weekHref(week.n, track)"
-            target="_blank"
-            rel="noopener"
-            class="rounded-full bg-(--level) px-4 py-2 text-sm font-bold text-void transition-transform hover:scale-[1.03] active:scale-95"
-          >
-            Open week →
-          </a>
-          <button
-            class="rounded-full border px-4 py-2 text-sm font-bold transition-colors"
-            :class="isDone(week.n) ? 'border-(--level) text-(--level)' : 'border-white/15 text-mute hover:text-ink'"
-            :aria-pressed="isDone(week.n)"
-            @click="toggle(week.n)"
-          >
+        <h2 class="display mt-3 overflow-hidden text-[clamp(2.2rem,4.2vw,3.4rem)]"><span class="swap inline-block">{{ week.title }}</span></h2>
+        <p class="swap mt-3 font-serif text-xl leading-snug italic opacity-85">You ship: {{ week.ship.charAt(0).toLowerCase() + week.ship.slice(1) }}.</p>
+        <div class="mt-5 flex flex-wrap items-center gap-3">
+          <NuxtLink :to="`/week/${week.n}`" class="btn btn-solid">Open week →</NuxtLink>
+          <button class="btn" :style="isDone(week.n) ? { background: level.color, color: 'var(--color-ink)', borderColor: level.color } : {}" :aria-pressed="isDone(week.n)" @click="toggle(week.n)">
             {{ isDone(week.n) ? '✓ Done' : 'Mark done' }}
           </button>
-          <span class="ml-auto hidden font-mono text-[0.65rem] text-mute sm:inline">← → to travel</span>
         </div>
       </aside>
 
       <!-- week rail -->
-      <nav class="hud-in fixed top-1/2 right-2 z-30 hidden -translate-y-1/2 flex-col gap-[3px] sm:right-4 md:flex" aria-label="Weeks">
+      <nav class="fixed top-1/2 right-4 z-30 hidden -translate-y-1/2 flex-col md:flex" aria-label="Weeks">
         <button
           v-for="(w, i) in weeks"
           :key="w.n"
-          class="group relative flex h-[14px] items-center justify-end"
+          class="group relative flex h-[15px] items-center justify-end"
           :aria-label="`Week ${w.n}: ${w.title}`"
           :aria-current="i === index && started ? 'step' : undefined"
           @click="scrollToWeek(i)"
         >
-          <span
-            class="pointer-events-none absolute right-8 rounded bg-void/80 px-2 py-0.5 font-mono text-[0.65rem] whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-          >
-            {{ String(w.n).padStart(2, '0') }} · {{ w.title }}
+          <span class="label pointer-events-none absolute right-10 bg-ink px-2 py-1 whitespace-nowrap text-paper opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">
+            {{ pad(w.n) }} — {{ w.title }}
           </span>
+          <span v-if="i === index && started" class="label mr-2 !text-[0.65rem]">{{ pad(w.n) }}</span>
           <span
-            class="block h-[3px] rounded-full transition-all duration-300"
-            :class="[i === index && started ? 'w-7' : w.project ? 'w-4' : 'w-2.5', 'group-hover:w-7']"
-            :style="{ background: LEVELS[w.level].color, opacity: i === index && started ? 1 : isDone(w.n) ? 0.9 : 0.35 }"
+            class="block bg-ink transition-all duration-200 group-hover:w-7"
+            :class="[i === index && started ? 'h-[3px] w-7' : w.project ? 'h-[3px] w-5' : 'h-px w-3', isDone(w.n) ? '!h-[5px]' : '']"
           />
         </button>
       </nav>
 
       <!-- finale -->
-      <section
-        ref="finale"
-        class="fixed inset-0 z-20 grid place-items-center px-6 text-center transition-opacity duration-700"
-        :class="ended ? 'opacity-100' : 'pointer-events-none opacity-0'"
-      >
-        <div>
-          <p class="font-mono text-xs tracking-[0.35em] text-mute uppercase">End of the road</p>
-          <h2 class="font-display mt-4 text-[clamp(2.5rem,8vw,7rem)] leading-[0.92] font-extrabold">
-            Now go<br /><span class="level-text">build it.</span>
-          </h2>
-          <div class="mt-8 flex flex-wrap justify-center gap-3">
-            <button class="rounded-full bg-(--level) px-6 py-3 font-bold text-void transition-transform hover:scale-[1.03]" @click="scrollToWeek(0)">Start at Week 0</button>
-            <a
-              href="https://github.com/ameenmv/frontend-roadmap-2026-2027"
-              target="_blank"
-              rel="noopener"
-              class="rounded-full border border-white/20 px-6 py-3 font-bold transition-colors hover:border-(--level)"
-            >
-              Read on GitHub
-            </a>
-          </div>
+      <section class="fixed inset-0 z-20 flex flex-col justify-center px-4 transition-opacity duration-500 sm:px-7" :class="ended ? 'opacity-100' : 'pointer-events-none opacity-0'">
+        <p class="label">End of the road</p>
+        <h2 class="display mt-3 text-[clamp(4rem,19vw,22rem)]">Now go<br />build it.</h2>
+        <div class="mt-7 flex flex-wrap gap-3">
+          <button class="btn btn-ink" @click="scrollToWeek(0)">Back to week 00</button>
+          <a href="https://github.com/ameenmv/frontend-roadmap-2026-2027" target="_blank" rel="noopener" class="btn">Read on GitHub ↗</a>
         </div>
       </section>
 
-      <!-- scroll distance that drives the camera -->
+      <!-- scroll distance that drives the car -->
       <div ref="scroller" :style="{ height: `${WEEKS.length * 78 + 160}vh` }" />
     </template>
 
     <!-- ================= flat fallback (reduced motion / no WebGL) ================= -->
-    <main v-else class="mx-auto max-w-5xl px-5 py-16">
-      <p class="font-mono text-xs tracking-[0.3em] text-mute uppercase">CIS Team · 2026—2027</p>
-      <h1 class="font-display mt-3 text-5xl font-extrabold sm:text-7xl">Frontend <span class="text-beginner">Roadmap</span></h1>
-      <p class="mt-4 max-w-xl text-mute">31 weeks. From your first <code class="font-mono text-ink">&lt;div&gt;</code> to a live app.</p>
+    <main v-else class="px-4 py-10 sm:px-7">
+      <p class="label">CIS Team · Frontend Roadmap · 2026—27</p>
+      <h1 class="display mt-4 text-[clamp(4rem,18vw,16rem)]">Frontend<br />Roadmap</h1>
+      <p class="mt-4 font-serif text-3xl italic">A 31-week road trip, from your first &lt;div&gt; to a live app.</p>
 
-      <section v-for="lv in Object.values(LEVELS)" :key="lv.id" class="mt-12" :style="{ '--level': lv.color }">
-        <h2 class="level-text font-mono text-sm tracking-[0.2em] uppercase">{{ lv.name }} · {{ lv.range }}</h2>
-        <ul class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <li v-for="w in weeks.filter((x) => x.level === lv.id)" :key="w.n">
-            <a :href="weekHref(w.n, track)" target="_blank" rel="noopener" class="hud-glass block h-full rounded-xl p-4 transition-colors hover:border-(--level)">
-              <span class="level-text font-mono text-xs">Week {{ String(w.n).padStart(2, '0') }}</span>
-              <span class="font-display mt-1 block text-lg leading-snug font-extrabold">{{ w.title }}</span>
-              <span class="mt-1 block text-sm text-mute">{{ w.ship }}</span>
-            </a>
+      <section v-for="lv in Object.values(LEVELS)" :key="lv.id" class="mt-14" :style="{ '--level': lv.color }">
+        <h2 class="label border-b-2 border-ink pb-2">{{ lv.name }} — {{ lv.range }}</h2>
+        <ul>
+          <li v-for="w in weeks.filter((x) => x.level === lv.id)" :key="w.n" class="border-b border-ink/25">
+            <NuxtLink :to="`/week/${w.n}`" class="grid grid-cols-[4rem_1fr] items-baseline gap-x-4 py-3 hover:bg-(--level) sm:grid-cols-[6rem_1fr_1fr]">
+              <span class="display text-4xl sm:text-5xl">{{ pad(w.n) }}</span>
+              <span class="text-xl font-extrabold">{{ w.title }}</span>
+              <span class="col-start-2 font-serif text-lg italic opacity-75 sm:col-start-3">{{ w.ship }}</span>
+            </NuxtLink>
           </li>
         </ul>
       </section>

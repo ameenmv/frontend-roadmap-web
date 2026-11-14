@@ -9,26 +9,25 @@ export default defineNuxtConfig({
     optimizeDeps: {
       include: [
         'gsap', 'gsap/ScrollTrigger', 'gsap/SplitText', 'lenis', 'three',
-        'three/addons/postprocessing/EffectComposer.js',
-        'three/addons/postprocessing/OutputPass.js',
-        'three/addons/postprocessing/RenderPass.js',
-        'three/addons/postprocessing/UnrealBloomPass.js',
+        'three/addons/loaders/FontLoader.js',
+        'three/addons/geometries/TextGeometry.js',
       ],
     },
   },
   app: {
+    pageTransition: { name: 'wipe', mode: 'out-in' },
     head: {
       htmlAttrs: { lang: 'en' },
       title: 'Frontend Roadmap · CIS Team 2026-2027',
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
         { name: 'description', content: '31 weeks from your first <div> to a live app. A week-by-week frontend roadmap by CIS Team.' },
-        { name: 'theme-color', content: '#05060a' },
+        { name: 'theme-color', content: '#ff5a1f' },
       ],
       link: [
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-        { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Manrope:wght@400;500;700&family=Syne:wght@600;800&display=swap' },
+        { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;600&display=swap' },
       ],
     },
   },

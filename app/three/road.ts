@@ -1,12 +1,11 @@
 import * as THREE from 'three'
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { FontLoader, type Font } from 'three/addons/loaders/FontLoader.js'
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
 
 export interface Station {
   n: number
   color: string
+  levelName: string
   label: [string, string]
   project?: boolean
 }
@@ -18,229 +17,301 @@ export interface RoadOptions {
 /** Curve parameter of the first and last station; the rest are spread evenly between. */
 export const T_START = 0.05
 export const T_END = 0.955
-
 export const stationT = (i: number, count: number) => T_START + (i / (count - 1)) * (T_END - T_START)
 
-const VOID = new THREE.Color('#05060a')
+const INK = '#141312'
+const PAPER = '#efe9dd'
 const UP = new THREE.Vector3(0, 1, 0)
+/** How far before a station the camera rests, so its sign is in view. */
+const VIEW_BACK = 0.017
+
+/** Roadside words, per level: the things you learn there. */
+const WORDS: string[][] = [
+  ['<div>', '<h1>', '{ }', 'flex', 'grid', '.css', '<a>', '#id', 'rem', '@media'],
+  ['=>', '( )', '[ ]', 'async', 'const', '===', 'fetch', '.map', 'this', ': T'],
+  ['<App />', 'props', 'state', 'ref( )', 'hook', '/:id', 'store'],
+  ['test', 'query', 'SSR', 'a11y', 'ship', 'LCP', 'deploy'],
+]
 
 export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts: RoadOptions) {
   const high = opts.quality === 'high'
   const count = stations.length
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: high, powerPreference: 'high-performance' })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, high ? 1.75 : 1.25))
-  renderer.toneMapping = THREE.NoToneMapping
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : 1.5))
 
   const scene = new THREE.Scene()
-  scene.background = VOID.clone()
-  scene.fog = new THREE.FogExp2(VOID.clone(), 0.0105)
+  const sky = new THREE.Color()
+  scene.background = sky
+  scene.fog = new THREE.Fog(sky, 38, 235)
 
-  const camera = new THREE.PerspectiveCamera(64, 1, 0.1, 600)
+  const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 900)
 
-  // ---- path -------------------------------------------------------------
+  // ---- path (flat: it is a road) -----------------------------------------
   const pts: THREE.Vector3[] = []
-  for (let k = -3; k <= count + 2; k++) {
-    pts.push(new THREE.Vector3(Math.sin(k * 0.62) * 13 + Math.sin(k * 0.21) * 6, Math.sin(k * 0.37) * 3.2, -k * 26))
-  }
+  for (let k = -3; k <= count + 2; k++) pts.push(new THREE.Vector3(Math.sin(k * 0.62) * 11 + Math.sin(k * 0.21) * 5, 0, -k * 26))
   const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5)
   curve.arcLengthDivisions = 2000
+  const length = curve.getLength()
 
-  const colors = stations.map((s) => new THREE.Color(s.color))
-  /** Smooth level colour for a fractional station index. */
+  const levelColors = stations.map((s) => new THREE.Color(s.color))
   const colorAt = (idx: number, out = new THREE.Color()) => {
     const i = THREE.MathUtils.clamp(idx, 0, count - 1)
     const a = Math.floor(i)
     const b = Math.min(a + 1, count - 1)
-    return out.copy(colors[a]!).lerp(colors[b]!, THREE.MathUtils.smoothstep(i - a, 0.25, 0.75))
+    return out.copy(levelColors[a]!).lerp(levelColors[b]!, THREE.MathUtils.smoothstep(i - a, 0.2, 0.8))
   }
   const idxAtT = (t: number) => ((t - T_START) / (T_END - T_START)) * (count - 1)
+  const sideAt = (t: number) => new THREE.Vector3().crossVectors(curve.getTangentAt(t), UP).normalize()
 
-  // ---- road -------------------------------------------------------------
-  const TUBULAR = 1400
-  const RADIAL = 8
-  const roadGeo = new THREE.TubeGeometry(curve, TUBULAR, 0.09, RADIAL, false)
-  const roadColors = new Float32Array(roadGeo.attributes.position!.count * 3)
-  const tmp = new THREE.Color()
-  for (let i = 0; i < roadGeo.attributes.position!.count; i++) {
-    const u = Math.floor(i / (RADIAL + 1)) / TUBULAR
-    colorAt(idxAtT(u), tmp)
-    roadColors.set([tmp.r, tmp.g, tmp.b], i * 3)
-  }
-  roadGeo.setAttribute('color', new THREE.BufferAttribute(roadColors, 3))
-  const roadMat = new THREE.ShaderMaterial({
-    uniforms: { uProgress: { value: 0 }, uTime: { value: 0 } },
-    vertexShader: /* glsl */ `
-      attribute vec3 color;
-      varying vec3 vColor;
-      varying float vU;
-      void main() {
-        vColor = color;
-        vU = uv.x;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
-    fragmentShader: /* glsl */ `
-      uniform float uProgress;
-      uniform float uTime;
-      varying vec3 vColor;
-      varying float vU;
-      void main() {
-        float done = smoothstep(uProgress + 0.012, uProgress - 0.002, vU);
-        float flow = pow(fract(vU * 90.0 - uTime * 0.35), 6.0);
-        vec3 col = vColor * (0.3 + 0.95 * done) + vColor * flow * 0.7;
-        gl_FragColor = vec4(col, 1.0);
-      }`,
-  })
-  scene.add(new THREE.Mesh(roadGeo, roadMat))
-
-  // ---- gates + labels ---------------------------------------------------
-  const gates: { group: THREE.Group; t: number; ring: THREE.Mesh; extra?: THREE.Object3D; mat: THREE.MeshBasicMaterial; base: THREE.Color }[] = []
-  const ringGeo = new THREE.TorusGeometry(3.1, 0.05, 10, 96)
-  const bigRingGeo = new THREE.TorusGeometry(4.2, 0.09, 12, 128)
-  const haloGeo = new THREE.TorusGeometry(5.4, 0.025, 8, 128)
-  const gemGeo = new THREE.IcosahedronGeometry(0.85, 0)
+  const ink = new THREE.MeshBasicMaterial({ color: INK })
+  const paper = new THREE.MeshBasicMaterial({ color: PAPER })
   const textures: THREE.Texture[] = []
 
-  const makeLabel = (s: Station) => {
-    const c = document.createElement('canvas')
-    c.width = 1024
-    c.height = 420
-    const g = c.getContext('2d')!
-    g.textAlign = 'center'
-    g.fillStyle = s.color
-    g.font = `800 ${s.project ? 200 : 190}px Syne, system-ui, sans-serif`
-    g.fillText(String(s.n).padStart(2, '0'), 512, 190)
+  // ---- ground: a layout grid ----------------------------------------------
+  const gridCanvas = document.createElement('canvas')
+  gridCanvas.width = gridCanvas.height = 256
+  {
+    const g = gridCanvas.getContext('2d')!
     g.fillStyle = '#ffffff'
-    g.font = `700 ${s.project ? 78 : 70}px Manrope, system-ui, sans-serif`
-    g.fillText(s.label[0], 512, 290)
-    if (s.label[1]) {
-      g.fillStyle = 'rgba(255,255,255,0.62)'
-      g.font = '500 54px Manrope, system-ui, sans-serif'
-      g.fillText(s.label[1], 512, 368)
+    g.fillRect(0, 0, 256, 256)
+    g.fillStyle = 'rgba(0,0,0,0.16)'
+    g.fillRect(0, 0, 256, 3)
+    g.fillRect(0, 0, 3, 256)
+  }
+  const gridTex = new THREE.CanvasTexture(gridCanvas)
+  gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping
+  gridTex.repeat.set(700 / 8, 1300 / 8)
+  gridTex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+  gridTex.colorSpace = THREE.SRGBColorSpace
+  textures.push(gridTex)
+  const groundMat = new THREE.MeshBasicMaterial({ map: gridTex })
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 1300), groundMat)
+  ground.rotation.x = -Math.PI / 2
+  ground.position.set(0, -0.02, -length / 2 + 80)
+  scene.add(ground)
+
+  // ---- asphalt ------------------------------------------------------------
+  const ROAD_W = 3.4
+  const SEG = 1500
+  const pos = new Float32Array((SEG + 1) * 6)
+  const uv = new Float32Array((SEG + 1) * 4)
+  const idx: number[] = []
+  const p = new THREE.Vector3()
+  for (let i = 0; i <= SEG; i++) {
+    const u = i / SEG
+    curve.getPointAt(u, p)
+    const s = sideAt(u)
+    pos.set([p.x - s.x * ROAD_W, 0, p.z - s.z * ROAD_W, p.x + s.x * ROAD_W, 0, p.z + s.z * ROAD_W], i * 6)
+    uv.set([(u * length) / 9, 0, (u * length) / 9, 1], i * 4)
+    if (i < SEG) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2)
+  }
+  const roadGeo = new THREE.BufferGeometry()
+  roadGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  roadGeo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  roadGeo.setIndex(idx)
+  const roadCanvas = document.createElement('canvas')
+  roadCanvas.width = 128
+  roadCanvas.height = 256
+  {
+    const g = roadCanvas.getContext('2d')!
+    g.fillStyle = INK
+    g.fillRect(0, 0, 128, 256)
+    g.fillStyle = PAPER
+    g.fillRect(0, 8, 128, 5)
+    g.fillRect(0, 243, 128, 5)
+    g.fillRect(0, 125, 60, 6)
+  }
+  const roadTex = new THREE.CanvasTexture(roadCanvas)
+  roadTex.wrapS = THREE.RepeatWrapping
+  roadTex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+  roadTex.colorSpace = THREE.SRGBColorSpace
+  textures.push(roadTex)
+  scene.add(new THREE.Mesh(roadGeo, new THREE.MeshBasicMaterial({ map: roadTex, side: THREE.DoubleSide })))
+
+  // ---- sun ----------------------------------------------------------------
+  const sun = new THREE.Mesh(new THREE.CircleGeometry(34, 64), new THREE.MeshBasicMaterial({ color: PAPER, fog: false, depthWrite: false }))
+  sun.renderOrder = -1
+  scene.add(sun)
+
+  // ---- road signs ---------------------------------------------------------
+  const FONT = { display: 'Anton', sans: 'Archivo', mono: '"JetBrains Mono"' }
+  const signs: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture; station: Station }[] = []
+
+  const drawSign = (c: HTMLCanvasElement, s: Station) => {
+    const g = c.getContext('2d')!
+    const W = c.width
+    const H = c.height
+    const num = String(s.n).padStart(2, '0')
+    g.textBaseline = 'alphabetic'
+    if (s.project) {
+      g.fillStyle = INK
+      g.fillRect(0, 0, W, H)
+      g.strokeStyle = s.color
+      g.lineWidth = 10
+      g.strokeRect(18, 18, W - 36, H - 36)
+      g.fillStyle = s.color
+      g.font = `400 300px ${FONT.display}`
+      g.fillText(num, 60, 318)
+      g.fillStyle = PAPER
+      g.font = `400 168px ${FONT.display}`
+      g.fillText(s.label[0], 410, 208)
+      g.fillStyle = s.color
+      g.font = `600 58px ${FONT.mono}`
+      g.fillText(s.label[1].toUpperCase(), 414, 300)
+      return
     }
-    const tex = new THREE.CanvasTexture(c)
-    tex.colorSpace = THREE.SRGBColorSpace
-    tex.anisotropy = 4
-    textures.push(tex)
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))
-    sprite.scale.set(9.2, 3.77, 1)
-    return sprite
+    g.fillStyle = PAPER
+    g.fillRect(0, 0, W, H)
+    g.strokeStyle = INK
+    g.lineWidth = 12
+    g.strokeRect(20, 20, W - 40, H - 40)
+    g.fillStyle = s.color
+    g.fillRect(26, H - 150, W - 52, 124)
+    g.fillStyle = INK
+    g.font = `600 38px ${FONT.mono}`
+    g.fillText((s.levelName ?? '').toUpperCase(), 62, H - 72)
+    g.font = `600 34px ${FONT.mono}`
+    g.fillText('WEEK', 64, 96)
+    g.font = `400 330px ${FONT.display}`
+    g.fillText(num, 52, 418)
+    g.font = `800 92px ${FONT.sans}`
+    g.fillText(s.label[0], 420, 268)
+    if (s.label[1]) {
+      g.font = `500 66px ${FONT.sans}`
+      g.fillText(s.label[1], 422, 356)
+    }
   }
 
-  const buildStations = () => {
+  const poleGeo = new THREE.BoxGeometry(0.16, 1, 0.16)
+  const addPole = (parent: THREE.Object3D, x: number, h: number) => {
+    const m = new THREE.Mesh(poleGeo, ink)
+    m.scale.y = h
+    m.position.set(x, h / 2, -0.12)
+    parent.add(m)
+  }
+
+  const buildSigns = () => {
     stations.forEach((s, i) => {
       const t = stationT(i, count)
-      const p = curve.getPointAt(t)
+      const at = curve.getPointAt(t)
       const tan = curve.getTangentAt(t)
+      const side = sideAt(t)
       const group = new THREE.Group()
-      group.position.copy(p).addScaledVector(UP, 1.5)
-      const base = colors[i]!.clone().multiplyScalar(s.project ? 1.7 : 1.25)
-      const mat = new THREE.MeshBasicMaterial({ color: base.clone() })
-      const ring = new THREE.Mesh(s.project ? bigRingGeo : ringGeo, mat)
-      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tan)
-      group.add(ring)
-      let extra: THREE.Object3D | undefined
+      const c = document.createElement('canvas')
+      c.width = s.project ? 1536 : 1024
+      c.height = s.project ? 400 : 640
+      drawSign(c, s)
+      const tex = new THREE.CanvasTexture(c)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.anisotropy = 8
+      textures.push(tex)
+      signs.push({ canvas: c, tex, station: s })
+      const mat = new THREE.MeshBasicMaterial({ map: tex })
+      let turn = 0
+
       if (s.project) {
-        extra = new THREE.Group()
-        const halo = new THREE.Mesh(haloGeo, new THREE.MeshBasicMaterial({ color: colors[i]!.clone().multiplyScalar(1.2) }))
-        halo.quaternion.copy(ring.quaternion)
-        const gem = new THREE.Mesh(gemGeo, new THREE.MeshBasicMaterial({ color: colors[i]!.clone().multiplyScalar(2), wireframe: true }))
-        gem.position.y = 5.6
-        gem.scale.setScalar(0.7)
-        extra.add(halo, gem)
-        group.add(extra)
+        // overhead gantry across the road
+        group.position.copy(at)
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(13, 3.4), mat)
+        board.position.y = 7.4
+        group.add(board)
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(14.4, 0.3, 0.3), ink)
+        beam.position.set(0, 5.55, -0.12)
+        group.add(beam)
+        addPole(group, -7.1, 9.1)
+        addPole(group, 7.1, 9.1)
+      } else {
+        const dir = i % 2 === 0 ? 1 : -1
+        group.position.copy(at).addScaledVector(side, dir * 6.6)
+        const board = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 3.875), mat)
+        board.position.y = 4.5
+        group.add(board)
+        addPole(group, -2.2, 2.7)
+        addPole(group, 2.2, 2.7)
+        turn = -dir * 0.32
       }
-      const label = makeLabel(s)
-      label.position.set(0, s.project ? 8.3 : 5.4, 0)
-      group.add(label)
+      // face oncoming traffic
+      group.lookAt(group.position.clone().sub(tan))
+      if (turn) group.rotateY(turn)
       scene.add(group)
-      gates.push({ group, t, ring, extra, mat, base })
     })
   }
-  // Wait for the web fonts so the canvas labels use them, but never block forever.
-  Promise.race([document.fonts?.ready ?? Promise.resolve(), new Promise((r) => setTimeout(r, 2500))]).then(buildStations)
 
-  // ---- stars + debris ---------------------------------------------------
-  const rand = (a: number, b: number) => a + Math.random() * (b - a)
-  const offsetFrom = (t: number, rMin: number, rMax: number) => {
-    const a = Math.random() * Math.PI * 2
-    const r = rand(rMin, rMax)
-    return curve.getPointAt(t).add(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r * 0.7, rand(-10, 10)))
-  }
+  // ---- 3D type: giant week numbers + roadside words -----------------------
+  const buildType = (font: Font) => {
+    const text = (str: string, size: number, depth: number, front: THREE.Material, sideMat: THREE.Material) => {
+      const geo = new TextGeometry(str, { font, size, depth, curveSegments: high ? 6 : 3 })
+      geo.computeBoundingBox()
+      const bb = geo.boundingBox!
+      geo.translate(-(bb.max.x + bb.min.x) / 2, -bb.min.y, -depth / 2)
+      return new THREE.Mesh(geo, [front, sideMat])
+    }
 
-  const STARS = high ? 5200 : 1800
-  const starPos = new Float32Array(STARS * 3)
-  const starCol = new Float32Array(STARS * 3)
-  for (let i = 0; i < STARS; i++) {
-    const t = Math.random()
-    const p = offsetFrom(t, 14, 120)
-    starPos.set([p.x, p.y, p.z], i * 3)
-    colorAt(idxAtT(t), tmp).lerp(new THREE.Color('#ffffff'), rand(0.35, 1))
-    starCol.set([tmp.r, tmp.g, tmp.b], i * 3)
-  }
-  const starGeo = new THREE.BufferGeometry()
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
-  starGeo.setAttribute('color', new THREE.BufferAttribute(starCol, 3))
-  const starMat = new THREE.PointsMaterial({ size: 0.26, vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false, fog: false })
-  scene.add(new THREE.Points(starGeo, starMat))
-
-  const DEBRIS = high ? 260 : 90
-  const debrisGeo = new THREE.OctahedronGeometry(0.55, 0)
-  const debrisMat = new THREE.MeshBasicMaterial({ wireframe: true })
-  const debris = new THREE.InstancedMesh(debrisGeo, debrisMat, DEBRIS)
-  const debrisData: { pos: THREE.Vector3; rot: THREE.Euler; spin: THREE.Vector3; scale: number }[] = []
-  const m4 = new THREE.Matrix4()
-  const q = new THREE.Quaternion()
-  const sc = new THREE.Vector3()
-  for (let i = 0; i < DEBRIS; i++) {
-    const t = Math.random()
-    debrisData.push({
-      pos: offsetFrom(t, 6, 30),
-      rot: new THREE.Euler(rand(0, 6), rand(0, 6), rand(0, 6)),
-      spin: new THREE.Vector3(rand(-0.4, 0.4), rand(-0.4, 0.4), rand(-0.4, 0.4)),
-      scale: rand(0.4, 1.8),
+    stations.forEach((s, i) => {
+      const t = stationT(i, count)
+      const at = curve.getPointAt(t)
+      const tan = curve.getTangentAt(t)
+      const side = sideAt(t)
+      const dir = s.project ? (i % 2 ? 1 : -1) : i % 2 === 0 ? -1 : 1
+      const big = !!s.project
+      const m = text(String(s.n).padStart(2, '0'), big ? 15 : 8.5, big ? 4 : 2.4, big ? paper : ink, big ? ink : paper)
+      m.position.copy(at).addScaledVector(side, dir * (big ? 31 : 22)).addScaledVector(tan, big ? 24 : 19)
+      m.lookAt(m.position.clone().sub(tan))
+      m.rotateY(-dir * 0.42)
+      scene.add(m)
     })
-    debris.setColorAt(i, colorAt(idxAtT(t), tmp).multiplyScalar(rand(0.5, 1.3)))
-  }
-  scene.add(debris)
 
-  // ---- post -------------------------------------------------------------
-  let composer: EffectComposer | undefined
-  let bloom: UnrealBloomPass | undefined
-  if (high) {
-    composer = new EffectComposer(renderer)
-    composer.addPass(new RenderPass(scene, camera))
-    bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.62, 0.55, 0.32)
-    composer.addPass(bloom)
-    composer.addPass(new OutputPass())
+    const per = high ? 2 : 1
+    for (let i = 0; i < count - 1; i++) {
+      const level = i < 8 ? 0 : i < 18 ? 1 : i < 24 ? 2 : 3
+      const words = WORDS[level]!
+      for (let k = 0; k < per; k++) {
+        const t = stationT(i, count) + (0.42 + k * 0.22) * ((T_END - T_START) / (count - 1))
+        const at = curve.getPointAt(t)
+        const tan = curve.getTangentAt(t)
+        // keep clear of the next station's giant number
+        const dir = (i + 1) % 2 === 0 ? 1 : -1
+        const far = 13 + ((i * 7 + k * 13) % 15)
+        const lightFace = (i + k) % 3 === 0
+        const m = text(words[(i * 3 + k) % words.length]!, 1.7 + ((i * 5 + k) % 3) * 0.8, 0.8, lightFace ? paper : ink, lightFace ? ink : paper)
+        m.position.copy(at).addScaledVector(sideAt(t), dir * far)
+        m.lookAt(m.position.clone().sub(tan))
+        m.rotateY(-dir * (0.25 + ((i + k) % 5) * 0.12))
+        scene.add(m)
+      }
+    }
   }
+
+  const fontsReady = Promise.race([
+    Promise.all([document.fonts.load('400 100px Anton'), document.fonts.load('800 50px Archivo'), document.fonts.load('500 50px Archivo'), document.fonts.load('600 30px "JetBrains Mono"')]),
+    new Promise((r) => setTimeout(r, 3000)),
+  ])
+  fontsReady.then(buildSigns)
+  new FontLoader().load('/fonts/helvetiker_bold.typeface.json', buildType)
 
   // ---- state ------------------------------------------------------------
   let target = 0
   let current = 0
   const pointer = new THREE.Vector2()
   const pointerSmooth = new THREE.Vector2()
-  const fogColor = new THREE.Color()
   const camPos = new THREE.Vector3()
   const look = new THREE.Vector3()
   const right = new THREE.Vector3()
+  const fwd = new THREE.Vector3()
   const clock = new THREE.Clock()
   let raf = 0
   let running = true
 
-  const onPointer = (e: PointerEvent) => {
-    pointer.set((e.clientX / window.innerWidth) * 2 - 1, (e.clientY / window.innerHeight) * 2 - 1)
-  }
+  const onPointer = (e: PointerEvent) => pointer.set((e.clientX / window.innerWidth) * 2 - 1, (e.clientY / window.innerHeight) * 2 - 1)
   window.addEventListener('pointermove', onPointer, { passive: true })
 
   const resize = () => {
     const w = canvas.clientWidth
     const h = canvas.clientHeight
     renderer.setSize(w, h, false)
-    composer?.setSize(w, h)
     camera.aspect = w / h
-    // Keep gates readable on tall, narrow screens.
-    camera.fov = w / h < 0.8 ? 82 : 64
+    camera.fov = w / h < 0.8 ? 78 : 58
     camera.updateProjectionMatrix()
   }
   resize()
@@ -250,55 +321,32 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
     if (!running) return
     raf = requestAnimationFrame(frame)
     const dt = Math.min(clock.getDelta(), 0.05)
-    const time = clock.elapsedTime
 
     current += (target - current) * (1 - Math.exp(-dt * 6))
     pointerSmooth.lerp(pointer, 1 - Math.exp(-dt * 4))
 
-    // Sit a little before the current station so its gate and label are in view.
-    const t = THREE.MathUtils.clamp(current - 0.019, 0, 0.985)
+    const t = THREE.MathUtils.clamp(current - VIEW_BACK, 0, 0.985)
     curve.getPointAt(t, camPos)
-    curve.getPointAt(Math.min(t + 0.011, 1), look)
+    curve.getPointAt(Math.min(t + 0.014, 1), look)
     const tan = curve.getTangentAt(t)
     right.crossVectors(tan, UP).normalize()
 
-    camera.position.copy(camPos).addScaledVector(UP, 1.7 - pointerSmooth.y * 0.5).addScaledVector(right, pointerSmooth.x * 0.9)
-    look.addScaledVector(UP, 1.2)
+    camera.position.copy(camPos).addScaledVector(UP, 2.1 - pointerSmooth.y * 0.5).addScaledVector(right, pointerSmooth.x * 1.1)
+    // At the very start, look up: the title owns the sky and the road rises into view.
+    look.y = 3 + 4.6 * (1 - THREE.MathUtils.smoothstep(current, 0.004, 0.034))
     camera.lookAt(look)
-    camera.rotateZ(-tan.x * 0.22 - pointerSmooth.x * 0.03)
+    camera.rotateZ(-tan.x * 0.16 - pointerSmooth.x * 0.02)
 
-    roadMat.uniforms.uProgress!.value = t
-    roadMat.uniforms.uTime!.value = time
+    // sky follows the level; the ground is the same hue, deeper
+    colorAt(idxAtT(current), sky)
+    ;(scene.fog as THREE.Fog).color.copy(sky)
+    groundMat.color.copy(sky).multiplyScalar(0.8)
 
-    colorAt(idxAtT(t), tmp)
-    fogColor.copy(VOID).lerp(tmp, 0.007)
-    ;(scene.fog as THREE.FogExp2).color.copy(fogColor)
-    ;(scene.background as THREE.Color).copy(fogColor)
+    fwd.subVectors(look, camera.position).setY(0).normalize()
+    sun.position.copy(camera.position).addScaledVector(fwd, 520).setY(26)
+    sun.lookAt(camera.position.x, 26, camera.position.z)
 
-    for (const g of gates) {
-      const d = g.t - t
-      const near = Math.exp(-((d * 46) ** 2))
-      const passed = d < -0.004
-      g.ring.scale.setScalar(1 + near * 0.16)
-      g.mat.color.copy(g.base).multiplyScalar(passed ? 0.3 : 0.7 + near * 0.8)
-      if (g.extra) {
-        g.extra.children[0]!.rotation.z = time * 0.35
-        g.extra.children[1]!.rotation.set(time * 0.5, time * 0.7, 0)
-      }
-    }
-
-    for (let i = 0; i < DEBRIS; i++) {
-      const d = debrisData[i]!
-      d.rot.x += d.spin.x * dt
-      d.rot.y += d.spin.y * dt
-      d.rot.z += d.spin.z * dt
-      m4.compose(d.pos, q.setFromEuler(d.rot), sc.setScalar(d.scale))
-      debris.setMatrixAt(i, m4)
-    }
-    debris.instanceMatrix.needsUpdate = true
-
-    if (composer) composer.render()
-    else renderer.render(scene, camera)
+    renderer.render(scene, camera)
   }
   frame()
 
@@ -312,12 +360,24 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
   document.addEventListener('visibilitychange', onVisibility)
 
   return {
-    setProgress(p: number) {
-      target = p
+    setProgress(v: number) {
+      target = v
     },
-    /** Jump without easing, e.g. on first load at a deep-linked position. */
-    snap(p: number) {
-      target = current = p
+    /** Jump without easing, e.g. when returning to a specific week. */
+    snap(v: number) {
+      target = current = v
+    },
+    /** Redraw sign text, e.g. after switching the React / Vue track. */
+    setLabels(labels: [string, string][]) {
+      fontsReady.then(() =>
+        signs.forEach((s) => {
+          const next = labels[s.station.n]
+          if (!next || (next[0] === s.station.label[0] && next[1] === s.station.label[1])) return
+          s.station = { ...s.station, label: next }
+          drawSign(s.canvas, s.station)
+          s.tex.needsUpdate = true
+        }),
+      )
     },
     dispose() {
       running = false
@@ -325,15 +385,8 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
       window.removeEventListener('pointermove', onPointer)
       window.removeEventListener('resize', resize)
       document.removeEventListener('visibilitychange', onVisibility)
-      scene.traverse((o) => {
-        const m = o as THREE.Mesh
-        m.geometry?.dispose?.()
-        const mat = m.material as THREE.Material | THREE.Material[] | undefined
-        if (Array.isArray(mat)) mat.forEach((x) => x.dispose())
-        else mat?.dispose?.()
-      })
+      scene.traverse((o) => (o as THREE.Mesh).geometry?.dispose?.())
       textures.forEach((x) => x.dispose())
-      composer?.dispose()
       renderer.dispose()
     },
   }
