@@ -14,12 +14,14 @@ const root = ref<HTMLElement>()
 const canvas = ref<HTMLCanvasElement>()
 const scroller = ref<HTMLElement>()
 const hero = ref<HTMLElement>()
-const card = ref<HTMLElement>()
 
 const mode = ref<'loading' | '3d' | 'flat'>('loading')
 const index = ref(0)
 const started = ref(false)
 const ended = ref(false)
+const leg = ref(0)
+const steer = ref(0)
+const velocity = ref(0)
 
 const weeks = computed(() => WEEKS.map((w) => resolveWeek(w, track.value)))
 const week = computed(() => weeks.value[index.value]!)
@@ -86,7 +88,12 @@ onMounted(async () => {
 
   lenis = new Lenis({ lerp: 0.09, wheelMultiplier: 0.9 })
   lenis.on('scroll', ScrollTrigger.update)
-  tick = (time: number) => lenis!.raf(time * 1000)
+  tick = (time: number) => {
+    lenis!.raf(time * 1000)
+    // steering follows the road every frame; speed fades once you stop scrolling
+    steer.value = road?.getSteer() ?? 0
+    velocity.value *= 0.88
+  }
   gsap.ticker.add(tick)
   gsap.ticker.lagSmoothing(0)
 
@@ -112,7 +119,10 @@ onMounted(async () => {
       onUpdate(self) {
         const p = self.progress
         road?.setProgress(p)
-        index.value = clampIdx(Math.round(((p - T_START) / (T_END - T_START)) * (WEEKS.length - 1)))
+        const f = ((p - T_START) / (T_END - T_START)) * (WEEKS.length - 1)
+        index.value = clampIdx(Math.round(f))
+        leg.value = gsap.utils.clamp(0, 1, f - Math.floor(f))
+        velocity.value = self.getVelocity()
         started.value = p > 0.022
         ended.value = p > 0.978
         // The title lifts away like a billboard you drive under.
@@ -137,10 +147,6 @@ onMounted(async () => {
   window.addEventListener('keydown', onKey)
 })
 
-watch(index, () => {
-  if (!card.value || mode.value !== '3d') return
-  gsap.fromTo(card.value.querySelectorAll('.swap'), { yPercent: 60, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.4, stagger: 0.045, ease: 'power3.out', overwrite: true })
-})
 watch(track, () => road?.setLabels(weeks.value.map((w) => w.short)))
 
 onUnmounted(() => {
@@ -195,30 +201,22 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- week card -->
-      <aside
-        ref="card"
-        class="fixed inset-x-0 bottom-0 z-30 bg-ink p-5 text-paper transition-[translate] duration-500 ease-out sm:inset-x-auto sm:bottom-7 sm:left-7 sm:w-[27rem] sm:p-6"
-        :class="started && !ended ? 'translate-y-0' : 'pointer-events-none translate-y-[130%]'"
-        aria-live="polite"
-      >
-        <p class="label flex items-center justify-between gap-3 overflow-hidden max-md:overflow-visible">
-          <span class="swap inline-block">Week {{ pad(week.n) }} <span class="opacity-50">/ 30</span></span>
-          <span class="swap inline-block max-md:hidden" :style="{ color: level.color }">{{ week.project ? 'Milestone' : level.name }}</span>
-          <span class="flex gap-2 md:hidden">
-            <button class="btn !px-3.5 !py-2" aria-label="Previous week" :disabled="index === 0" @click="scrollToWeek(index - 1)">←</button>
-            <button class="btn !px-3.5 !py-2" aria-label="Next week" :disabled="index === WEEKS.length - 1" @click="scrollToWeek(index + 1)">→</button>
-          </span>
-        </p>
-        <h2 class="display mt-3 overflow-hidden text-[clamp(2.2rem,4.2vw,3.4rem)]"><span class="swap inline-block">{{ week.title }}</span></h2>
-        <p class="swap mt-3 font-serif text-xl leading-snug italic opacity-85">You ship: {{ week.ship.charAt(0).toLowerCase() + week.ship.slice(1) }}.</p>
-        <div class="mt-5 flex flex-wrap items-center gap-3">
-          <NuxtLink :to="`/week/${week.n}`" class="btn btn-solid">Open week →</NuxtLink>
-          <button class="btn" :style="isDone(week.n) ? { background: level.color, color: 'var(--color-ink)', borderColor: level.color } : {}" :aria-pressed="isDone(week.n)" @click="toggle(week.n)">
-            {{ isDone(week.n) ? '✓ Done' : 'Mark done' }}
-          </button>
-        </div>
-      </aside>
+      <!-- week ticket -->
+      <WeekTicket
+        :week="week"
+        :level-name="level.name"
+        :color="level.color"
+        :leg="leg"
+        :done="isDone(week.n)"
+        :visible="started && !ended"
+        :can-prev="index > 0"
+        :can-next="index < WEEKS.length - 1"
+        :steer="steer"
+        :velocity="velocity"
+        @toggle="toggle(week.n)"
+        @prev="scrollToWeek(index - 1)"
+        @next="scrollToWeek(index + 1)"
+      />
 
       <!-- week rail -->
       <nav class="fixed top-1/2 right-4 z-30 hidden -translate-y-1/2 flex-col md:flex" aria-label="Weeks">

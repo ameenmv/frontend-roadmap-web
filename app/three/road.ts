@@ -303,6 +303,7 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
   let raf = 0
   let running = true
   let viewBack = VIEW_BACK
+  let steer = 0
 
   const onPointer = (e: PointerEvent) => pointer.set((e.clientX / window.innerWidth) * 2 - 1, (e.clientY / window.innerHeight) * 2 - 1)
   window.addEventListener('pointermove', onPointer, { passive: true })
@@ -332,6 +333,9 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
     curve.getPointAt(Math.min(t + 0.014, 1), look)
     const tan = curve.getTangentAt(t)
     right.crossVectors(tan, UP).normalize()
+    // how hard the road bends right now: change of heading just ahead
+    const ahead = curve.getTangentAt(Math.min(t + 0.01, 1))
+    steer = THREE.MathUtils.clamp((ahead.x - tan.x) * 25, -1, 1)
 
     camera.position.copy(camPos).addScaledVector(UP, 2.1 - pointerSmooth.y * 0.5).addScaledVector(right, pointerSmooth.x * 1.1)
     // At the very start, look up: the title owns the sky and the road rises into view.
@@ -362,6 +366,8 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
   document.addEventListener('visibilitychange', onVisibility)
 
   return {
+    /** Signed bend of the road at the camera, roughly -1..1. */
+    getSteer: () => steer,
     setProgress(v: number) {
       target = v
     },
