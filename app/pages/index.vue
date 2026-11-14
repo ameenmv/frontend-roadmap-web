@@ -173,14 +173,17 @@ onUnmounted(() => {
       </header>
 
       <!-- hero -->
-      <section ref="hero" class="pointer-events-none fixed inset-0 z-20 flex flex-col px-4 pt-24 sm:px-7 sm:pt-[4.6rem]">
-        <div class="flex flex-wrap items-end justify-between gap-4 sm:pl-[22vw]">
-          <p class="hero-fade font-serif text-[clamp(1.4rem,2.9vw,2.6rem)] leading-[1.05] italic">
+      <section ref="hero" class="pointer-events-none fixed inset-0 z-20 flex flex-col px-4 pt-24 sm:px-7 sm:pt-[5.5rem]">
+        <h1 class="hero-title display text-[23.5vw] leading-[0.92] sm:text-[12.35vw] sm:leading-none sm:whitespace-nowrap">
+          Frontend<br class="sm:hidden" />
+          Roadmap
+        </h1>
+        <div class="mt-4 flex flex-wrap items-start justify-between gap-4 sm:mt-6">
+          <p class="hero-fade font-serif text-[clamp(1.5rem,3vw,3rem)] leading-[1.08] italic">
             A 31-week road trip, from your<br />first &lt;div&gt; to a live app.
           </p>
           <p class="hero-fade scroll-cue label">Scroll to drive ↓</p>
         </div>
-        <h1 class="hero-title display mt-5 text-[clamp(4.5rem,21.5vw,24rem)]">Frontend<br />Roadmap</h1>
       </section>
 
       <!-- week card -->

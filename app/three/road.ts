@@ -333,7 +333,7 @@ export function createRoad(canvas: HTMLCanvasElement, stations: Station[], opts:
 
     camera.position.copy(camPos).addScaledVector(UP, 2.1 - pointerSmooth.y * 0.5).addScaledVector(right, pointerSmooth.x * 1.1)
     // At the very start, look up: the title owns the sky and the road rises into view.
-    look.y = 3 + 4.6 * (1 - THREE.MathUtils.smoothstep(current, 0.004, 0.034))
+    look.y = 3 + 2.2 * (1 - THREE.MathUtils.smoothstep(current, 0.004, 0.034))
     camera.lookAt(look)
     camera.rotateZ(-tan.x * 0.16 - pointerSmooth.x * 0.02)
 
